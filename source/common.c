@@ -219,9 +219,8 @@ int lookup_uart_by_name(const char *input_name, char *dt)
     uart_t *p;
     for (p = uart_table; p->name != NULL; ++p) {
         if (strcmp(p->name, input_name) == 0) {
-            strncpy(dt, p->dt, 8);
-            dt[8] = '\0';
-            fprintf(stderr, "return 1 lookup_uart_by_name");
+            strncpy(dt, p->dt, FILENAME_BUFFER_SIZE);
+            dt[FILENAME_BUFFER_SIZE - 1] = '\0';
             return 1;                
         }
     }
@@ -316,7 +315,10 @@ int build_path(const char *partial_path, const char *prefix, char *full_path, si
     dp = opendir (partial_path);
     if (dp != NULL) {
         while ((ep = readdir (dp))) {
-            if (strstr(ep->d_name, prefix)) {
+            // Enforce that the prefix must be the first part of the file
+            char* found_string = strstr(ep->d_name, prefix);
+
+            if (found_string != NULL && (ep->d_name - found_string) == 0) {
                 snprintf(full_path, full_path_len, "%s/%s", partial_path, ep->d_name);
                 (void) closedir (dp);
                 return 1;
@@ -328,6 +330,31 @@ int build_path(const char *partial_path, const char *prefix, char *full_path, si
     }
 
     return 0;
+}
+
+int get_spi_bus_path_number(unsigned int spi)
+{
+  char path[50];
+  
+  build_path("/sys/devices", "ocp", ocp_dir, sizeof(ocp_dir));
+
+  if (spi == 0) {
+    snprintf(path, sizeof(path), "%s/48030000.spi/spi_master/spi1", ocp_dir);
+  } else {
+    snprintf(path, sizeof(path), "%s/481a0000.spi/spi_master/spi1", ocp_dir);
+  }
+  
+  DIR* dir = opendir(path);
+  if (dir) {
+    closedir(dir);
+    //device is using /dev/spidev1.x
+    return 1;
+  } else if (ENOENT == errno) {
+    //device is using /dev/spidev2.x
+    return 2;
+  } else {
+    return -1;
+  }
 }
 
 
@@ -371,6 +398,7 @@ int unload_device_tree(const char *name)
     char line[256];
     char *slot_line;
 
+    build_path("/sys/devices", "bone_capemgr", ctrl_dir, sizeof(ctrl_dir));
     snprintf(slots, sizeof(slots), "%s/slots", ctrl_dir);
 
     file = fopen(slots, "r+");

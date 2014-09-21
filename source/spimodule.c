@@ -112,7 +112,7 @@ static PyObject *
 SPI_writebytes(SPI *self, PyObject *args)
 {
 	int		status;
-	uint8_t	ii, len;
+	uint16_t	ii, len;
 	uint8_t	buf[MAXMSGLEN];
 	PyObject	*list;
 
@@ -206,7 +206,7 @@ PyDoc_STRVAR(SPI_xfer_doc,
 static PyObject *
 SPI_xfer(SPI *self, PyObject *args)
 {
-	uint8_t ii, len;
+	uint16_t ii, len;
 	int status;
 	int delay = -1;
 	//uint8_t ret = 0;
@@ -238,6 +238,9 @@ SPI_xfer(SPI *self, PyObject *args)
 	for (ii = 0; ii < len; ii++) {
 		PyObject *val = PyList_GET_ITEM(list, ii);
 		if (!PyInt_Check(val)) {
+			free(txbuf);
+			free(rxbuf);
+			free(xferptr);
 			PyErr_SetString(PyExc_TypeError, wrmsg);
 			return NULL;
 		}
@@ -252,6 +255,9 @@ SPI_xfer(SPI *self, PyObject *args)
 
 	status = ioctl(self->fd, SPI_IOC_MESSAGE(len), xferptr);
 	if (status < 0) {
+		free(txbuf);
+		free(rxbuf);
+		free(xferptr);
 		PyErr_SetFromErrno(PyExc_IOError);
 		return NULL;
 	}
@@ -270,6 +276,7 @@ SPI_xfer(SPI *self, PyObject *args)
 	free(rxbuf);
 	free(xferptr);
 
+	Py_INCREF(list);
 	return list;
 }
 
@@ -285,7 +292,7 @@ SPI_xfer2(SPI *self, PyObject *args)
 	static char *msg = "Argument must be a list of at least one, "
 				"but not more than 1024 integers";
 	int status;	
-	uint8_t ii, len;
+	uint16_t ii, len;
 	PyObject *list;
 	struct spi_ioc_transfer	xfer;
 	uint8_t *txbuf, *rxbuf;
@@ -309,6 +316,8 @@ SPI_xfer2(SPI *self, PyObject *args)
 	for (ii = 0; ii < len; ii++) {
 		PyObject *val = PyList_GET_ITEM(list, ii);
 		if (!PyInt_Check(val)) {
+			free(txbuf);
+			free(rxbuf);
 			PyErr_SetString(PyExc_TypeError, msg);
 			return NULL;
 		}
@@ -324,6 +333,8 @@ SPI_xfer2(SPI *self, PyObject *args)
 	
 	status = ioctl(self->fd, SPI_IOC_MESSAGE(1), &xfer);
 	if (status < 0) {
+		free(txbuf);
+		free(rxbuf);
 		PyErr_SetFromErrno(PyExc_IOError);
 		return NULL;
 	}
@@ -340,6 +351,7 @@ SPI_xfer2(SPI *self, PyObject *args)
 	free(txbuf);
 	free(rxbuf);
 
+	Py_INCREF(list);
 	return list;
 }
 
@@ -378,6 +390,7 @@ SPI_get_cshigh(SPI *self, void *closure)
 	else
 		result = Py_False;
 
+	Py_INCREF(result);
 	return result;
 }
 
@@ -391,6 +404,7 @@ SPI_get_lsbfirst(SPI *self, void *closure)
 	else
 		result = Py_False;
 
+        Py_INCREF(result);
 	return result;
 }
 
@@ -404,6 +418,7 @@ SPI_get_3wire(SPI *self, void *closure)
 	else
 		result = Py_False;
 
+        Py_INCREF(result);
 	return result;
 }
 
@@ -417,6 +432,7 @@ SPI_get_loop(SPI *self, void *closure)
 	else
 		result = Py_False;
 
+        Py_INCREF(result);
 	return result;
 }
 
@@ -679,6 +695,7 @@ static PyObject *
 SPI_open(SPI *self, PyObject *args, PyObject *kwds)
 {
 	int bus, device;
+	int bus_path;
 	int max_dt_length = 15;
 	char device_tree_name[max_dt_length];
 	char path[MAXPATH];
@@ -687,7 +704,7 @@ SPI_open(SPI *self, PyObject *args, PyObject *kwds)
 	static char *kwlist[] = {"bus", "device", NULL};
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "ii:open", kwlist, &bus, &device))
 		return NULL;
-	if (snprintf(device_tree_name, max_dt_length, "ADAFRUIT-SPI%d", bus) >= max_dt_length) {
+	if (snprintf(device_tree_name, max_dt_length, "BB-SPIDEV%d", bus) >= max_dt_length) {
 		PyErr_SetString(PyExc_OverflowError,
 			"Bus and/or device number is invalid.");
 		return NULL;
@@ -697,7 +714,14 @@ SPI_open(SPI *self, PyObject *args, PyObject *kwds)
 		return NULL;
 	}
 
-	if (snprintf(path, MAXPATH, "/dev/spidev%d.%d", bus+1, device) >= MAXPATH) {
+	bus_path = get_spi_bus_path_number(bus);
+	if (bus_path == -1) {
+		PyErr_SetString(PyExc_OverflowError,
+			"Unable to find loaded spi bus path.");
+		return NULL;
+	}
+
+	if (snprintf(path, MAXPATH, "/dev/spidev%d.%d", bus_path, device) >= MAXPATH) {
 		PyErr_SetString(PyExc_OverflowError,
 			"Bus and/or device number is invalid.");
 		return NULL;
